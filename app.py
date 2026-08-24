@@ -1,11 +1,21 @@
 import re
+import time
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Ranking de Aromas", layout="centered")
-st.title("🌺 Ranking dos Aromas Mais Agradáveis")
 
-# Link da sua planilha do Google
+# Título e botão de atualização na mesma linha
+col_titulo, col_botao = st.columns([0.7, 0.3])
+with col_titulo:
+  st.title("🌺 Ranking dos Aromas")
+with col_botao:
+  # Botão manual para forçar a busca de novas respostas
+  if st.button("🔄 Atualizar"):
+    st.cache_data.clear()
+    st.rerun()
+
+# Link da sua planilha do Google Sheets
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/16SOoKvVjdB3gWADHAH1zKLSrwqALz3MN66e10s-c_kA/edit?usp=sharing"
 
 try:
@@ -16,10 +26,13 @@ except Exception:
   st.stop()
 
 
-@st.cache_data(ttl=5)
+# Cache de apenas 1 segundo para buscar os dados em tempo real
+@st.cache_data(ttl=1)
 def carregar_dados():
-  # Lê o arquivo exportado via TSV
-  return pd.read_csv(tsv_url, sep="\t", on_bad_lines="skip")
+  # O parâmetro 'nocache' com timestamp impede o Google de entregar dados antigos do cache dele
+  timestamp = int(time.time())
+  url_sem_cache = f"{tsv_url}&nocache={timestamp}"
+  return pd.read_csv(url_sem_cache, sep="\t", on_bad_lines="skip")
 
 
 try:
@@ -27,19 +40,17 @@ try:
 
   # Dicionário de pesos para as posições
   pesos_por_posicao = {1: 5, 2: 4, 3: 3, 4: 2, 5: 1}
-
   pontuacao_total = {}
 
-  # Mapeia as colunas procurando o número do lugar no nome do cabeçalho
+  # Procura as colunas de classificação (1 a 5 Lugar)
   for col in df.columns:
-    # Procura por números de 1 a 5 no título da coluna (ex: "1 Lugar", "[1 Lugar]", "1º")
     match = re.search(r"([1-5])\s*Lugar", str(col), re.IGNORECASE)
 
     if match:
       posicao = int(match.group(1))
       peso = pesos_por_posicao.get(posicao, 0)
 
-      # Conta quantas vezes cada aroma apareceu nesta coluna
+      # Conta quantas vezes cada aroma apareceu na coluna
       contagem = df[col].dropna().value_counts()
 
       for aroma, qtd in contagem.items():
@@ -49,12 +60,12 @@ try:
               nome_aroma, 0
           ) + (qtd * peso)
 
-  # Transforma em DataFrame e ordena
+  # Cria o ranking ordenado
   df_ranking = pd.DataFrame(
       list(pontuacao_total.items()), columns=["Aroma", "Pontuação Total"]
   ).sort_values(by="Pontuação Total", ascending=False)
 
-  # EXIBIÇÃO NO STREAMLIT
+  # EXIBIÇÃO
   if not df_ranking.empty:
     vencedor = df_ranking.iloc[0]["Aroma"]
     pontos_vencedor = df_ranking.iloc[0]["Pontuação Total"]
